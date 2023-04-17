@@ -1,6 +1,12 @@
 import express from "express"
 import { createConnection } from "mysql"
 
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import  session from 'express-session';
+import bodyParser from "body-parser";
+import passport from "passport";
+
 const app = express();
 
 const connection = createConnection({
@@ -18,9 +24,17 @@ const connection = createConnection({
   
     console.log("Connected to database with ID " + connection.threadId);
   });
-  
+  app.use(session({
+    secret: "secret",
+    resave: true,
+    saveUninitialized: true
+  }));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+// app.use(passport.initialize());
 
   app.post("/login", (req, res) => {
     const { email, password } = req.body;
@@ -112,6 +126,68 @@ const connection = createConnection({
       }
     );
   });
+  app.get("/user/:userId", (req, res) => {
+    const userId = req.params.userId;
+    const query = "SELECT * FROM users WHERE id = ?";
+    connection.query(query, [userId], (err, results) => {
+      if (err) {
+        console.error("Error retrieving user: " + err.stack);
+        res.status(500).send("Error retrieving user");
+        return;
+      }
+  
+      if (results.length === 0) {
+        res.status(404).send("User not found");
+        return;
+      }
+  
+      const user = results[0];
+      res.send(user);
+    });
+  });
+  app.get("/user", authenticateToken, (req, res) => {
+    const userId = req.user.id;
+    connection.query(
+      "SELECT id, name, email FROM users WHERE id = ?",
+      [userId],
+      (err, results) => {
+        if (err) {
+          console.log(err);
+          res.status(500).json({ message: "Internal server error" });
+          return;
+        }
+  
+        if (results.length === 0) {
+          res.status(404).json({ message: "User not found" });
+          return;
+        }
+  
+        const user = results[0];
+        res.json(user);
+      }
+    );
+  });
+
+  function authenticateToken(req, res, next) {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(" ")[1];
+  
+    if (!token) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+  
+    jwt.verify(token, "secret", (err, user) => {
+      if (err) {
+        res.status(403).json({ message: "Forbidden" });
+        return;
+      }
+  
+      req.user = user;
+      next();
+    });
+  }
+  
 
 app.get("/vacancies", async (req, res) => {
   try {
